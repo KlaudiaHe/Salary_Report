@@ -1,0 +1,1060 @@
+---
+title: "Analysis of factors contributing to the top quartile of Data Science salaries"
+author: 'Klaudia Turowska'
+output:
+  html_document: default
+editor_options:
+  markdown:
+    wrap: 72
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(cache = FALSE)
+
+
+
+  
+# Load necessary libraries
+library(ggplot2)
+library(dplyr)
+library(readr)
+library(reshape2)
+library(sf)
+library(viridis)
+library(plotly)
+library(cluster)
+library(purrr)
+library(clValid)
+library(fpc)
+library(clusterCrit)
+library(knitr)
+library(scales)
+library(tidyr)
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(partykit)
+library(ggfortify)
+library(gridExtra)
+```
+# 1. INTRODUCTION
+
+The data science industry, at the intersection of statistics, computer science, and business analysis, has rapidly grown into a critical field for data-driven decision-making and innovation. It plays a pivotal role in various sectors, including technology, finance, healthcare, and retail, among others. The industry's growth is fueled by the increasing generation of data and the need for sophisticated tools and methodologies to extract insights and inform business strategies. Data scientists are highly sought after for their ability to analyze complex datasets, create predictive models, and communicate findings effectively. The evolving nature of the industry, marked by advancements in machine learning, artificial intelligence, and big data technologies, continues to expand the scope and impact of data science roles, making it a dynamic and future-focused career field.
+
+Understanding salary levels, especially in the field of data science, is valuable for several reasons, both from an individual's career perspective and from an organizational standpoint.
+Research Question of the analysis: What factors contribute to the top quartile of data science salaries?
+Salary_in_usd variable will be used as a main variable in order to ensure standarization and comparability of data for different countries.
+
+This report consists of several parts, including data evaluation, explanatory data analysis and advanced analysis. 
+
+
+# 2. DATA EVALUATION
+## 2.1. SOURCE:
+Data used for this analysis was obtained from Kaggle - a platform for data scientists (link:<https://www.kaggle.com/datasets/arnabchaki/data-science-salaries-2023/data>)
+in a form of a .CSV file. Uploading data:
+```{r load_data}
+dsalaries <- read.csv("path/dsalaries.csv")
+```
+
+
+
+## 2.2. MISSING VALUES DETECTION:
+There are no missing values in the dataset.
+```{r missing_values}
+sum(is.na(dsalaries))
+```
+
+## 2.3 DESCRIPTIVE STATISTICAL ANALYSIS OF DATASET:
+```{r descriptive_statistics}
+
+# Calculate statistics
+std_dev <- sd(dsalaries$salary_in_usd)
+variance <- var(dsalaries$salary_in_usd)
+IQR_salary_usd <- IQR(dsalaries$salary_in_usd)
+lower_bound_usd <- quantile(dsalaries$salary_in_usd, 0.25) - 1.5 * IQR_salary_usd
+upper_bound_usd <- quantile(dsalaries$salary_in_usd, 0.75) + 1.5 * IQR_salary_usd
+# Create a data frame of the results
+statistics_df <- data.frame(
+  Statistic = c("Standard Deviation", "Variance", "Interquartile Range (IQR)", "Lower Bound for Outliers", "Upper Bound for Outliers"),
+  Value = c(std_dev, variance, IQR_salary_usd, lower_bound_usd, upper_bound_usd)
+)
+kable(statistics_df, caption = "**Statistical Summary of Salaries in USD**", digits = 2)
+```
+
+**Interpretation of the values:** 
+The high variance value reiterates that there's a substantial spread in the salary data, indicating diverse salary ranges within the field.
+An IQR of 80,000 USD suggests that the central half of the data has a wide salary range, emphasizing the diversity in compensation across different data science positions.
+When it comes to lower bound for outliers, theoretically, this threshold is at -25,000 USD, but practically, negative salaries are not feasible. This implies that there are few to no extreme low outliers in the salary data. 
+Next, upper bound for outlierS shows that salaries above 295,000 USD are outliers, signifying extremely high-paying roles in the data science industry. These might be associated with highly specialized skills, leadership roles, or specific high-paying industries or regions.
+In conclusion, the data shows a broad range of salaries within the field of data science, indicating a diverse industry with varying levels of compensation. This range can be attributed to factors such as geographical location, level of education, experience, and specific job roles. The presence of high-paying outliers suggests opportunities for significantly lucrative roles in the industry. Understanding these salary dynamics is crucial for both professionals navigating their career paths and organizations structuring their compensation strategies.
+
+## 2.4. BOXPLOT FOR THE DISTRIBUTION AND OUTLIERS IN SALARY IN USD:
+Below there is a boxplot illustrating the aforementioned statistics. The presence of outliers, indicated by points beyond the "whiskers" of the boxplot, suggests significant variation in the upper range of salaries. These outliers could represent highly specialized roles, exceptionally experienced individuals, or specific industries within data science where salaries are markedly higher.
+```{r boxplot_outliers}
+# Create a boxplot using Plotly
+boxplot <- ggplot(dsalaries, aes(y = salary_in_usd)) +
+  geom_boxplot(fill = "#56B4E9", color = "#0072B2") +
+  labs(
+    title = "Boxplot of Data Science Salaries in USD",
+    y = "Salary in USD",
+    caption = "Data source: dsalaries"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    plot.caption = element_text(hjust = 0, size = 8),
+    axis.title.y = element_text(face = "bold"),
+    axis.text = element_text(color = "#333333")
+  ) +
+  scale_y_continuous(labels = label_comma())  # Format y-axis labels
+# Display the interactive plot
+boxplot <- ggplotly(boxplot)
+# Create horizontal lines for lower and upper bounds
+boxplot <- boxplot %>%
+  layout(shapes = list(
+    list(type = "line", x0 = 0, x1 = 1, xref = "paper", y0 = lower_bound_usd, y1 = lower_bound_usd, line = list(dash = "dash", color = "red", width = 1)),
+    list(type = "line", x0 = 0, x1 = 1, xref = "paper", y0 = upper_bound_usd, y1 = upper_bound_usd, line = list(dash = "dash", color = "red", width = 1))
+  ))
+# Display the modified plot
+boxplot
+```
+
+## 2.5. DETECTION OF INCONSISTENCIES IN CATEGORICAL DATA:
+The frequency tables below show several interesting trends:
+1. The most frequent experience level is Senior;
+2. Most of employees work full time;
+3. There is prevalence of medium sized companies;
+4. The most frequent job titles are: Data Engineer, Data Scientist, Data Analyst, followed by Machine Learning Engineer, Analytics Engineer and Data Architect. There are many job titles which occur only once or twice. 
+5. When it comes to employee residence, there is an obvious trend - most data regards United States of America. 
+6. Unsurprisingly, most companies are located in United States of America.
+
+Such huge differences in terms of frequency create difficulty in further analysis. For this reason, both job titles and employee residence values will be respectively categorized according to the career fields and regions.
+```{r inconsistencies_categorical_data}
+# Function to create a sorted frequency table
+create_sorted_freq_table <- function(variable) {
+  freq_table <- table(variable) %>% as.data.frame()
+    # Dynamically get the column names
+  col_names <- names(freq_table)
+    # Rename the columns and sort
+  setNames(freq_table, c("Value", "Frequency")) %>%
+    arrange(desc(Frequency))
+}
+# Create frequency tables
+freq_experience_level <- create_sorted_freq_table(dsalaries$experience_level)
+freq_employment_type <- create_sorted_freq_table(dsalaries$employment_type)
+freq_company_size <- create_sorted_freq_table(dsalaries$company_size)
+# Visualize the tables using kable
+kable(freq_experience_level, caption = "**Frequency of Experience Level**")
+kable(freq_employment_type, caption = "**Frequency of Employment Type**")
+kable(freq_company_size, caption = "**Frequency of Company Size**")
+```
+
+In order to assess the frequency of job titles they were assigned their frequencies in the table below. Clearly, there are some prevalent job titles, but what is interesting, many job titles are unique. It can be due to different phrasing, which would mean the role is the same, but the job title is diffrent. On the other hand, uniqueness of some job titles may be due to highly specialized and innovative roles. 
+
+```{r freq_jobtitles}
+# Function to create a summarized, sorted, and rearranged frequency matrix
+create_sorted_summarized_freq_matrix <- function(variable) {
+  freq <- table(variable)
+    # Identify unique frequencies
+  unique_freqs <- unique(freq)
+    # Create a data frame to store the summary
+  summary_df <- data.frame(Frequency = unique_freqs, Value = NA, Count = NA)
+    # Assign values to the Value column based on frequency
+  for (freq_value in unique_freqs) {
+    values_with_freq <- names(freq)[freq == freq_value]
+    sorted_values <- paste(sort(values_with_freq), collapse = ", ")  # Sort values alphabetically
+    summary_df$Value[summary_df$Frequency == freq_value] <- sorted_values
+    summary_df$Count[summary_df$Frequency == freq_value] <- sum(freq == freq_value)
+  }
+    # Sort the summary matrix by frequency in descending order
+  summary_df <- summary_df[order(-summary_df$Frequency), ]
+    return(summary_df)
+}
+# Create summarized, sorted, and rearranged frequency matrices for job titles, employee residence, salary currency, and company location
+summarized_job_titles <- create_sorted_summarized_freq_matrix(dsalaries$job_title)
+summarized_employee_residence <- create_sorted_summarized_freq_matrix(dsalaries$employee_residence)
+summarized_salary_currency <- create_sorted_summarized_freq_matrix(dsalaries$salary_currency)
+summarized_company_location <- create_sorted_summarized_freq_matrix(dsalaries$company_location)
+# Visualize the summarized matrices using kable with rearranged columns
+kable(summarized_job_titles[, c("Frequency", "Value", "Count")], caption = "**Summary of Job Titles**", row.names = FALSE)
+kable(summarized_employee_residence[, c("Frequency", "Value", "Count")], caption = "**Summary of Employee Residence**", row.names = FALSE)
+kable(summarized_salary_currency[, c("Frequency", "Value", "Count")], caption = "**Summary of Salary Currency**", row.names = FALSE)
+kable(summarized_company_location[, c("Frequency", "Value", "Count")], caption = "**Summary of Company Location**", row.names = FALSE)
+```
+
+## 2.6. DATASET OVERVIEW
+### STRUCTURE OF DSALARIES DATASET:
+Below there are listed all types of values in the dsalaries dataset.
+```{r dataset_structure}
+dsalaries_structure <- data.frame(
+  Variable = c("work_year", "experience_level", "employment_type", "job_title", "salary", 
+               "salary_currency", "salary_in_usd", "employee_residence", "remote_ratio", 
+               "company_location", "company_size"),
+   Description = c("Year of the work data", "Level of experience", "Type of employment", 
+                  "Title of the job", "Salary in local currency", "Currency of the salary",
+                  "Salary in USD", "Country of residence of the employee", 
+                  "Percentage of work done remotely", "Location of the company", "Size of the company")
+)
+kable(dsalaries_structure, caption = "**Structure of the dsalaries Dataset**", table.attr = "class='custom-table'")
+```
+
+## 2.7. EMPLOYEE_RESIDENCE CATEGORIZED BY REGIONS:
+For the sake of insightful analysis, employee residence variable is categorized according to region.
+As Europe and North America have the most frequencies, and other regions have very few occurences, they were combined into category: "Other Regions". This category will include: South America, Africa and Oceania.
+```{r regions, message=FALSE, warning=FALSE}
+# Categorizing 'employee_residence' into regions
+europe <- c("AL", "AD", "AT", "BA", "BE", "BG", "BY", "CH", "CY", "CZ", "DE", "DK", "EE",
+            "ES", "FI", "FR", "GB", "GR", "HR", "HU", "IE", "IS", "IT", "JE", "LT", "LU", "LV",
+            "MC", "MD", "ME", "MK", "MT", "NL", "NO", "PL", "PT", "RO", "RS", "RU", "SE",
+            "SI", "SK", "TR", "UA")
+other_regions <- c("AE", "AM", "CN", "HK", "ID", "IL", "IN", "IQ", "IR", "JP", "KW", "MY", "PH",
+                   "PK", "SG", "TH", "UZ", "VN", "AR", "BO", "BR", "CL", "CO", "PE", "UY", "VE", 
+                   "CF", "DZ", "EG", "GH", "KE", "MA", "NG", "TN", "AS", "AU", "NZ")
+north_america <- c("CA", "CR", "DO", "HN", "MX", "PR", "US")
+# Add a new column 'region'
+dsalaries <- dsalaries %>%
+  mutate(region = case_when(
+    employee_residence %in% europe ~ "Europe",
+    employee_residence %in% other_regions ~ "Other Regions",
+    employee_residence %in% north_america ~ "North America",
+    TRUE ~ "Other" # For any country codes not listed
+  ))
+# Create a data frame for regions and countries
+regions_df <- data.frame(
+  Region = c("Europe", "Other Regions", "North America"),
+  Countries = I(list(europe, other_regions, north_america))
+)
+# Convert the country codes into a single string for each region
+regions_df$Countries <- sapply(regions_df$Countries, function(x) paste(x, collapse = ", "))
+kable(regions_df, caption = NULL, col.names = c("Region", "Employee Residence"))
+# Create a summary table for regions
+region_summary <- table(dsalaries$region) %>% as.data.frame()
+names(region_summary) <- c("Region", "Frequency")
+# Bar plot for regions with adjusted y-axis scale in ggplot2
+gg_region_plot <- ggplot(region_summary, aes(x = reorder(Region, -Frequency), y = Frequency)) +
+  geom_bar(stat = "identity", fill = "cornflowerblue") +
+  labs(title = "Frequency of Employee Residence by Region",
+       x = NULL,
+       y = "Frequency") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_y_continuous(
+    limits = c(0, 3200),
+    breaks = seq(0, 3200, by = 300) # Set the interval for breaks
+  )
+# Convert to Plotly for an interactive plot
+plotly_region_plot <- ggplotly(gg_region_plot)
+# Display the interactive plot
+plotly_region_plot
+```
+
+### 2.8. JOB TITLE CATEGORIES
+Because of high number of different job titles and for the ease of further analysis, the job titles were categorized into following groups. Such criteria as: relevance to core skills and responsibilities, industry-standard role definitions, overlap with related fields, hierarchical and management aspects and specialization or unique focus were taken into account.
+The category: "Emerging Technologies and Specialized Roles" is important, as it contains many job titles, but they don't occur frequently. Because of their degree of specialization it is crucial to include them in the analysis, especially to assess if niche roles can have high salaries.
+```{r job_title_categorization}
+job_title_categories <- list(
+  "Data Engineering & Architecture" = c( 
+    "Data Engineer",  "Data Architect", "Big Data Engineer", "Data Infrastructure Engineer", "Data Operations Engineer", "AI Developer", "Director of Data Science", "Cloud Database Engineer", "Lead Data Engineer", "Cloud Data Engineer", "Principal Data Engineer", "Software Data Engineer"),
+      "Data Science & Analytics" = c(
+    "Data Scientist","Data Analyst", "Applied Scientist", "Applied Data Scientist", "Data Science Manager", "Data Science Engineer", "Data Manager", "Data Science Consultant", "Data Analytics Manager", "BI Data Analyst", "Business Data Analyst", "Data Specialist", "BI Developer", "BI Analyst", "Head of Data Science", "Head of Data", "Lead Data Scientist", "Data Science Lead","Principal Data Scientist", "Data Quality Analyst", "NLP Engineer", "Lead Data Analyst", "Lead Data Scientist", "Product Data Analyst", "Data Operations Analyst", "Cloud Data Engineer", "Financial Data Analyst", "Lead Machine Learning Engineer", "Machine Learning Manager", "Data Analytics Consultant", "Data Analytics Lead", "Data Analytics Specialist", "Data Analytics Engineer", "Data Lead", "Data Modeler", "Data Scientist Lead", "Data Strategist", "ETL Engineer", "ETL Developer", "Insight Analyst", "Marketing Data Analyst", "Principal Data Analyst"),
+    "Machine Learning & Advanced Research" = c(
+    "Machine Learning Developer", "Applied Machine Learning Engineer", "Machine Learning Engineer", "Analytics Engineer", "Research Scientist", "Research Engineer", "ML Engineer", "Machine Learning Scientist", "Machine Learning Software Engineer", "Machine Learning Research Engineer", "Applied Machine Learning Scientist", "Big Data Engineer", "Director of Data Science", "Machine Learning Infrastructure Engineer", "Machine Learning Researcher"),
+    "Emerging Technologies & Specialized Roles" = c(
+    "AI Developer", "AI Scientist", "AI Programmer", "Applied Scientist", "Data Science Manager", "Deep Learning Engineer", "Machine Learning Researcher", "3D Computer Vision Researcher", "Business Intelligence Engineer", "Azure Data Engineer", "BI Data Engineer", "Cloud Data Architect", "Compliance Data Analyst", "Data DevOps Engineer", "Data Management Specialist", "Data Science Tech Lead",
+    "Deep Learning Researcher", "Finance Data Analyst", "Head of Machine Learning", "Manager Data Management", "Marketing Data Engineer", "Power BI Developer", "Principal Data Architect", "Principal Machine Learning Engineer", "Product Data Scientist", "Staff Data Analyst", "Staff Data Scientist", "Autonomous Vehicle Technician", "Big Data Architect", "Data Lead", "Data Modeler", "Data Strategist", "ETL Engineer", "Insight Analyst", "Marketing Data Analyst", "Principal Data Analyst", "Computer Vision Engineer", "Computer Vision Software Engineer", "MLOps Engineer")
+)
+# Function to categorize job titles
+categorize_job_title <- function(title) {
+  for (category in names(job_title_categories)) {
+    if (title %in% job_title_categories[[category]]) {
+      return(category)
+    }
+  }
+  return("Other")
+}
+# Apply the categorization to the dataset
+dsalaries$job_title_category <- sapply(dsalaries$job_title, categorize_job_title)
+# Create a summary table for job title categories
+job_title_summary <- table(dsalaries$job_title_category) %>% as.data.frame()
+names(job_title_summary) <- c("Category", "Frequency")
+# Create a data frame for job title categories
+job_titles_df <- data.frame(
+  Category = names(job_title_categories),
+  Titles = I(job_title_categories)
+)
+# Convert the job titles into a single string for each category
+job_titles_df$Titles <- sapply(job_titles_df$Titles, function(x) paste(x, collapse = ", "))
+# Use kable to display the data frame
+kable(job_titles_df, caption = NULL, 
+      col.names = c("Category", "Job Titles"), 
+      row.names = FALSE)
+```
+
+Below there is a barplot illustrating the frequency of job title categories. Creation of category 'Emerging Technologies & Specialized Roles' aims to examine the possibility of high salaries among the most unique, innovative and specialized roles in data science field.
+
+```{r frequency_jobtitlecategories}
+# Adjusting y-axis scale in ggplot2
+gg_bar_plot <- ggplot(job_title_summary, aes(x = reorder(Category, -Frequency), y = Frequency)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  labs(title = "Frequency of Job Title Categories",
+       x = NULL,
+       y = "Frequency") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_y_continuous(
+    limits = c(0, 1843),
+    breaks = seq(0, 1840, by = 200)
+  )
+# Convert to Plotly
+plotly_bar_plot <- ggplotly(gg_bar_plot)
+# Display the interactive plot
+plotly_bar_plot
+```
+
+# 3.  EXPLANATORY DATA ANALYSIS (EDA)
+## 3.1. DESCRIPTIVE STATISTICS
+### 3.1.1. SUMMARY OF THE DATASET:
+
+The summary of the dataset dsalaries reveals some important observations, for instance:
+- wide range in salary figures;
+- diversity in remote work arrangements;
+- high maximum salaries etc.
+
+Some of this observations will be further explored in next parts of this report. 
+
+```{r dataset_summary}
+# Convert summary output to a data frame
+summary_df <- summary(dsalaries)
+summary_df <- as.data.frame.matrix(summary_df)
+# Transpose the data frame to get variables as rows and summary statistics as columns
+summary_df <- t(summary_df)
+summary_df <- as.data.frame(summary_df)
+# Add a row for variable names
+summary_df <- cbind(Variable = rownames(summary_df), summary_df)
+rownames(summary_df) <- NULL
+# Display the table using kable
+kable(summary_df, caption = NULL, align = 'l')
+```
+
+### 3.1.2. SALARY IN USD DISTRIBUTION AND DENSITY:
+This histogram displaying density and distribution od salaries in USD shows clearly that most salaries fall roughly between 100,000 USD and 200,000 USD. The peak of the density plot aligns with the salary range where the highest number of data points are found.
+
+The summary of dsalaries dataset reveals that the lowest salary is 5132 USD and maximum one is 450000 USD. It can be said that  the extent to which the density plot deviates from the center (median) can indicate skewness in the salary data. For instance, a long tail on the right of the density plot would suggest that a smaller number of individuals have salaries significantly higher than the median, which is consistent with the wide range observed.
+
+```{r salary_distribution_density}
+# Combined histogram and density plot for salary_in_usd with formatted axes
+ggplot(dsalaries, aes(x = salary_in_usd)) +
+  geom_histogram(aes(y = after_stat(density)), binwidth = 10000, fill = "blue", alpha = 0.5) +
+  geom_density(alpha = .2, fill = "#FF6666") +
+  labs(title = "Distribution and Density of Salaries in USD",
+       x = "Salary in USD",
+       y = "Density") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  scale_x_continuous(labels = label_comma()) +  # Format x-axis labels
+  scale_y_continuous(labels = label_comma())   # Format y-axis labels
+```
+
+## 3.2. VARIABLE RELATIONSHIPS
+### 3.2.1.CORRELATION MATRIX HEATMAP
+The correlation heatmap shows, that in case of remote ratio, salary (in currencies from respective employee residence) and work year, the impact on salary in USD variable is seemingly negligible.
+
+```{r correlation_matrix_plot}
+# Correlation matrix
+cor_data <- dsalaries %>% select(work_year, salary, salary_in_usd, remote_ratio)
+cor_matrix <- cor(cor_data, use = "complete.obs")
+# Create a heatmap of the correlation matrix
+ggplot(data = melt(cor_matrix), aes(Var1, Var2, fill = value)) +
+  geom_tile() +
+  scale_fill_gradient2(low = "blue", mid = "white", high = "red", 
+                       midpoint = 0, limits = c(-1,1)) +
+  labs(title = "Correlation Matrix Heatmap", x = "", y = "") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+### 3.2.2. VIOLIN PLOT FOR SALARY IN USD VS. EXPERIENCE LEVEL 
+This interactive violin plot for salary in USD vs. experience level enables examination of all statistics for different categories of experience level. Some general interpretations can be deduced:
+    - Larger Company Compensation: The presence of higher and more varying salaries in larger companies could reflect the broader scope of roles, availability of resources, and the ability to pay for highly specialized skills.
+    - Smaller Company Dynamics: Smaller companies showing a narrower range of salaries could be due to a number of factors including less role differentiation, budget constraints, or a more unified salary structure.
+    - Overall Salary Trends: The fact that outliers are present across all company sizes indicates that exceptionally high salaries are not exclusive to any particular company size and could be influenced more by individual role, skill level, or negotiation.
+```{r violinplot_salary_experiencelevel}
+# Create a violin plot using ggplot2
+violin_plot <- ggplot(dsalaries, aes(x = experience_level, y = salary_in_usd)) +
+  geom_violin(trim = FALSE, fill = "lightblue", color = "black") +
+  geom_boxplot(width = 0.1, fill = "white", color = "black", outlier.alpha = 0.2) +
+  labs(title = "Violin Plot of Salary in USD by Experience Level",
+       x = NULL,
+       y = "Salary in USD") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5),
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  ) +
+  scale_y_continuous(labels = scales::label_comma())
+# Convert the ggplot2 plot to an interactive Plotly plot
+plotly_violin_plot <- ggplotly(violin_plot)
+# Display the interactive plot
+plotly_violin_plot
+```
+
+### 3.2.3. BOXPLOT FOR SALARY IN USD BY COMPANY SIZE
+
+Analysis of the Boxplot:
+
+- Variability in Salary: There's a noticeable difference in the interquartile range (IQR) – the box part of the boxplot – among the three company sizes. Large companies have a wider IQR compared to medium and small companies, suggesting more variability in the salaries offered by larger companies.
+
+- Median Salary Comparison: The median salary – indicated by the line in the middle of each box – appears to be highest in large companies, followed by medium and then small companies. This trend is a common observation in the industry, as larger companies often have more resources to offer competitive salaries.
+
+- Outliers: There are numerous outliers for large and medium companies, represented by the individual dots outside the upper whiskers of the boxplot. This suggests that within these company sizes, there are positions that command exceptionally high salaries, possibly due to specialized skills, senior roles, or other factors.
+
+- Lower Salary Range: Small companies show a compact box with fewer outliers, which could indicate a more uniform salary structure with less deviation from the median salary.
+
+```{r salary_company size}
+# Boxplot of Salary in USD by Company Size using ggplot2
+gg_salary_boxplot <- ggplot(dsalaries, aes(x = company_size, y = salary_in_usd, fill = company_size)) +
+  geom_boxplot() +
+  labs(title = "Salary in USD by Company Size",
+       x = NULL,
+       y = "Salary in USD") +
+  theme_minimal() +
+  scale_fill_brewer(palette = "Set3") +
+  scale_y_continuous(labels = scales::label_number(big.mark = ","), breaks = scales::pretty_breaks(n = 10)) + # Formatting y-axis with full numbers
+  theme(legend.position = "none") # Removing the legend
+# Convert ggplot object to a Plotly object
+plotly_salary_boxplot <- ggplotly(gg_salary_boxplot)
+# Render the Plotly plot
+plotly_salary_boxplot
+```
+
+### 3.2.4. SALARY IN USD DISTRIBUTION IN REGIONS
+
+1. General Observations:
+- North America: The box representing North America shows a higher median salary compared to Europe and Other Regions. The range of salaries is also quite broad, with a number of outliers indicating extremely high salaries.
+- Europe: Europe's median salary is lower than that of North America, and the interquartile range (IQR) is more compact, suggesting less variability in salaries than in North America.
+- Other Regions: The Other Regions category has the lowest median salary and a smaller IQR, indicating more consistency in salaries, albeit at a lower range compared to Europe and North America.
+
+2. Outliers:
+- There is a significant number of outliers in the North American region, indicating that salaries can reach very high levels, possibly due to the presence of tech hubs like Silicon Valley where top-tier salaries are common.
+- Europe and Other Regions also show outliers, but these are fewer and less extreme compared to North America.
+
+3. Implications for the Report:
+- The plot supports the statement that the highest salaries in the data science field are more likely to be found in North America, which could be influenced by the higher cost of living, the concentration of multinational corporations, and a mature tech industry.
+- The data also suggests that while Europe and Other Regions may offer competitive salaries, the most lucrative opportunities, in terms of salary potential, are more prevalent in North America.
+```{r salary_distribution_region}
+# Box plot of Salary in USD distribution by Region
+boxplot_region <- ggplot(dsalaries, aes(x = region, y = salary_in_usd)) +
+  geom_boxplot(fill = "#76B7B2", color = "black") +
+  labs(title = "Salary in USD Distribution by Region",
+       x = NULL,
+       y = "Salary in USD") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5),
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  ) +
+  scale_y_continuous(labels = scales::label_comma()) # Format y-axis labels
+# Convert to Plotly for an interactive plot
+plotly_boxplot_region <- ggplotly(boxplot_region)
+# Display the interactive plot
+plotly_boxplot_region
+```
+
+### 3.2.5.AVERAGE SALARY IN USD FOR EMPLOYEE RESIDENCE IN REGIONS
+This scatter plot visualizes the average salaries for data science roles based on the employee's residence within each region: Europe, North America, and Other Regions. Here's a succinct analysis:
+- Europe: Shows a cluster of average salaries with a tight range, suggesting less variability in pay across different countries within the region.
+- North America: Displays higher average salaries than Europe, with a spread indicating that some residences in North America have significantly higher average salaries than others.
+- Other Regions: There's a wide spread in average salaries, with some residences showing comparable averages to North America, potentially indicating the presence of high-paying countries outside the traditional economic centers.
+The plot underscores the regional disparities in average data science salaries and suggests that residence within these regions can be a strong indicator of salary expectations.
+```{r topearners_regions,fig.height=10}
+# Calculate the average salary for each employee residence within each region
+average_salaries_residences <- dsalaries %>%
+  group_by(region, employee_residence) %>%
+  summarize(Avg_Salary = mean(salary_in_usd), .groups = "drop") %>%
+  ungroup()
+# Prepare the label for tooltip
+average_salaries_residences$tooltip_label <- paste(average_salaries_residences$employee_residence, "- Avg: $", round(average_salaries_residences$Avg_Salary))
+# Create a scatter plot using ggplot2
+gg_scatter_plot_residences <- ggplot(average_salaries_residences, aes(x = region, y = Avg_Salary, text = tooltip_label, color = region)) +
+  geom_point() +
+  labs(title = "Average Salaries by Employee Residence within Each Region",
+       x = NULL,
+       y = "Average Salary in USD") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5),
+    axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1),  # Tilt x-axis labels at 45 degrees
+    legend.position = "none"  # Remove the legend
+  ) +
+  scale_y_continuous(labels = scales::label_comma())  # Format y-axis labels
+# Convert the ggplot2 plot to an interactive Plotly plot
+plotly_scatter_plot_residences <- ggplotly(gg_scatter_plot_residences, tooltip = "text")
+# Display the interactive plot
+plotly_scatter_plot_residences
+```
+
+### 3.2.6. SALARY IN USD DISTRIBUTION BY JOB TITLE GROUP
+Overall, the plot shows that more specialized and advanced job title groups tend to have a higher variation in salaries, with the potential for significantly higher pay. Here are some conclusions: Here's a succinct analysis:
+- Data Engineering & Architecture: Shows a moderate median salary with a relatively compact interquartile range (IQR), indicating consistency in salaries within this group.
+- Data Science & Analytics: This group has a similar median salary to Data Engineering & Architecture but a slightly wider IQR, suggesting more variation in pay.
+- Emerging Technologies & Specialized Roles: This category exhibits a wider IQR and higher median salary, which could reflect the high demand and compensation for specialized skills.
+- Machine Learning & Advanced Research: Has the widest IQR, indicating a significant spread in salaries, with some very high outliers, reflecting the premium paid for advanced ML expertise and research roles.
+
+```{r salary_distr_jobtitlegroup_v2, fig.height=10}
+# Ensure job titles are categorized
+dsalaries$job_title_category <- sapply(dsalaries$job_title, categorize_job_title)
+# Create a boxplot using ggplot2 with adjusted salary scale and color
+salary_distribution_plot <- ggplot(dsalaries, aes(x = job_title_category, y = salary_in_usd)) +
+  geom_boxplot(fill = "lightgreen", color = "#1f3552") +  # Custom colors for boxplot
+  labs(title = "Salary in USD Distribution by Job Title Group",
+       x = NULL,
+       y = "Salary in USD") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.text.y = element_text(color = "#333333")
+  ) +
+  scale_y_continuous(
+    labels = scales::label_comma(), 
+    limits = c(NA, 470000), # Set an upper limit for the salary scale as needed
+    breaks = seq(0, 470000, by = 50000) # Set interval for y-axis breaks
+  )
+# Convert to Plotly for an interactive plot
+plotly_salary_distribution <- ggplotly(salary_distribution_plot)
+# Display the interactive plot
+plotly_salary_distribution
+```
+
+### 3.2.7. AVERAGE SALARY FOR JOB TITLES IN THEIR RESPECTIVE CATEGORIES
+The scatter plot displays the average salaries for various job titles within each job category in the data science field. Here's a succinct analysis:
+- Data Engineering & Architecture: This category shows a cluster of job titles with average salaries mostly in the lower to middle salary range, suggesting that while important, these roles may not command the highest salaries.
+- Data Science & Analytics: There's a broad distribution of average salaries, indicating variability in compensation which may reflect a range of specializations and responsibilities within this category.
+- Emerging Technologies & Specialized Roles: The average salaries are dispersed across a wide range, with several job titles commanding higher average salaries, highlighting the value of niche skills in the market.
+- Machine Learning & Advanced Research: This category shows a concentration of higher average salaries, underscoring the industry's demand for advanced technical skills and research capabilities.
+```{r topearners_jobtitlecategories, fig.height=9}
+average_salaries <- dsalaries %>%
+  group_by(job_title, job_title_category) %>%
+  summarize(Avg_Salary = mean(salary_in_usd), .groups = "drop") %>%
+  ungroup()
+# Prepare the label for tooltip
+average_salaries$tooltip_label <- paste(average_salaries$job_title, "- Avg: $", round(average_salaries$Avg_Salary))
+# Create a scatter plot using ggplot2
+gg_scatter_plot <- ggplot(average_salaries, aes(x = job_title_category, y = Avg_Salary, text = tooltip_label, color = job_title_category)) +
+  geom_point() +
+  labs(title = "Average Salaries by Job Title within Each Category",
+       x = NULL,
+       y = "Average Salary in USD") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5),
+    axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1),  # Tilt x-axis labels at 45 degrees
+    legend.position = "none"  # Remove the legend
+  ) +
+  scale_y_continuous(labels = scales::label_comma())  # Format y-axis labels
+# Convert the ggplot2 plot to an interactive Plotly plot
+plotly_scatter_plot <- ggplotly(gg_scatter_plot, tooltip = "text")
+# Display the interactive plot
+plotly_scatter_plot
+```
+
+### 3.2.8.INTERACTIVE PLOT FOR AVERAGE SALARY IN USD TRENDS OVER YEARS BY REGION
+The plot illustrates regional disparities in the growth rate of data science salaries, highlighting North America as the leader in compensation for these roles.Here's a brief analysis:
+- North America shows a consistent upward trend, maintaining the highest average salary across the observed years, which underscores the region's strong market for data science roles.
+Europe also displays an upward trend but starts and remains below North America's average salary throughout the years, indicating a growing but less lucrative market compared to North America.
+- Other Regions exhibit t- he lowest average salaries, with a slight increase over time. This group may encompass regions with emerging markets for data science and varying economic conditions.
+```{r region_years}
+
+average_salary_by_year_region <- dsalaries %>%
+  group_by(work_year, region) %>%
+  summarize(average_salary = mean(salary_in_usd, na.rm = TRUE), .groups = "drop")  # This will drop the grouping
+gg_salary_trend <- ggplot(average_salary_by_year_region, aes(x = work_year, y = average_salary, group = region, color = region)) +
+  geom_line() +
+  geom_point() +
+  labs(title = "Average Salary in USD Trends Over Years by Region",
+       x = NULL,
+       y = "Average Salary in USD") +
+  theme_minimal() +
+  scale_color_viridis_d()
+plotly_salary_trend <- ggplotly(gg_salary_trend)
+plotly_salary_trend
+```
+
+### 3.2.9.INTERACTIVE PLOT FOR AVERAGE SALARY IN USD TRENDS OVER YEARS BY JOB_TITLE GROUPS
+he line graph visualizes the trends of average salaries over several years, categorized by job title groups within the data science industry:
+- Data Engineering & Architecture: This category shows substantial growth in average salaries over the years, indicating an increasing valuation of skills in this area;
+- Data Science & Analytics: Starting from a higher baseline in 2020, this group also sees a consistent rise in average salaries, which may reflect the ongoing demand for data science expertise;
+- Emerging Technologies & Specialized Roles: There's a sharp increase from 2020 to 2023, suggesting a rapid growth in compensation, possibly due to the scarcity of cutting-edge technical skills as they become more in demand.
+- Machine Learning & Advanced Research: With a significant leap in average salaries, this group tops the chart by 2023, underscoring the premium placed on advanced research and machine learning skills.
+
+The graph indicates that while all areas are experiencing salary growth, the most pronounced increases are in specialized fields, which aligns with the high demand for advanced skill sets in the evolving data science market.
+```{r salary_jobtitle_years}
+average_salary_by_year_job_category <- dsalaries %>%
+  group_by(work_year, job_title_category) %>%
+  summarize(average_salary = mean(salary_in_usd, na.rm = TRUE), .groups = "drop") 
+gg_salary_trend_job_category <- ggplot(average_salary_by_year_job_category, aes(x = work_year, y = average_salary, color = job_title_category)) +
+  geom_line() +
+  geom_point() +
+  labs(title = "Average Salary in USD Over Years by Job Title Category",
+       x = NULL,
+       y = "Average Salary in USD") +
+  theme_minimal() +
+  scale_color_viridis_d() +
+  theme(legend.position = "bottom") # Adjust legend position as needed
+plotly_salary_trend_job_category <- ggplotly(gg_salary_trend_job_category)
+plotly_salary_trend_job_category
+```
+
+# 4. CLUSTERING OF THE DATASET DSALARIES
+## 4.1. GENERAL CLUSTERING
+Variables salary_in_usd, work_year, and remote_ratio were chosen for clustering. These variables are scaled to ensure that they contribute equally to the clustering process.
+```{r cluster_dsalaries}
+
+clustering_data <- dsalaries %>%
+  select(salary_in_usd, work_year, remote_ratio) %>%
+  scale()  # Scale the data
+```
+
+### 4.1.1. ELBOW METHOD FOR CHOOSING OPTIMAL K
+Analysis of the Elbow Method Plot:
+- Decreasing WSS: Initially, as k increases, there is a steep decline in WSS, indicating significant gains from increasing the number of clusters.
+- Elbow Point: The "elbow" of the plot appears to be at k = 4, where the rate of decrease sharply diminishes. This inflection point suggests that adding more clusters beyond this number results in diminishing returns in terms of WSS reduction.
+- Optimal Clusters: Based on this plot, k = 4 is identified as the optimal number of clusters for the data because it represents a balance between minimizing WSS and avoiding overfitting with too many clusters.
+```{r }
+# Elbow method
+set.seed(123)  # Set seed for reproducibility
+wss <- sapply(1:10, function(k) {
+  kmeans(clustering_data, centers = k, nstart = 10)$tot.withinss
+})
+plot(1:10, wss, type = "b", xlab = "Number of Clusters", ylab = "Within groups sum of squares")
+```
+
+### 4.1.2. K-MEANS CLUSTERING
+K-means clustering algorithm was run with k set to 4.
+Clusters have been defined based on similarities in salary, work year, and remote work ratio.
+```{r k_means_clustering_general}
+# K-means clustering
+set.seed(123)
+k <- 4 
+km <- kmeans(clustering_data, centers = k, nstart = 25)
+
+dsalaries$cluster <- km$cluster
+# Count the number of observations in each cluster
+cluster_counts <- data.frame(
+  Cluster = as.integer(names(table(dsalaries$cluster))),
+  Count = as.integer(table(dsalaries$cluster))
+)
+# Display the cluster counts in a neat table
+kable(cluster_counts, caption = "Cluster Counts")
+# Explore the cluster centers
+cluster_centers <- data.frame(
+  Cluster = 1:4,
+  `Salary (Scaled)` = km$centers[, 1],
+  `Work Year (Scaled)` = km$centers[, 2],
+  `Remote Ratio (Scaled)` = km$centers[, 3]
+)
+# Display the cluster centers in a table
+knitr::kable(cluster_centers, caption = "Cluster Centers")
+```
+Values above indicate, that: 
+
+Cluster 1: represents employees with lower salaries, relatively newer roles, and infrequent remote work. The negative values in Salary (Scaled) and Remote Ratio (Scaled) indicate lower salaries and infrequent remote work, while the positive value in Work Year (Scaled) suggests relatively newer employees in their roles.
+
+Cluster 2: represents highly paid employees with slightly more experience and a low remote work ratio. The high positive value in Salary (Scaled) suggests higher salaries, and the positive value in Work Year (Scaled) indicates more experience. The negative value in Remote Ratio (Scaled) suggests a low tendency for remote work, possibly indicating in-office high-level professionals.
+
+Cluster 3: represents employees with average salaries, average experience, and frequent remote work. The positive value in Salary (Scaled) suggests average salaries, and the positive value in Remote Ratio (Scaled) indicates a high tendency for remote work, possibly indicating remote workers or freelancers.
+
+Cluster 4: represents the least paid, least experienced employees with a higher tendency for remote work. The highly negative values in both Salary (Scaled) and Work Year (Scaled) indicate lower salaries and less experience. The positive value in Remote Ratio (Scaled) suggests a higher tendency for remote work, possibly indicating entry-level or intern positions that offer remote work options.
+
+
+### 4.1.3. PCA
+The scatter plot visualizes the first two principal components obtained from a PCA (Principal Component Analysis). The points are colored according to the four clusters identified by the k-means algorithm.
+- Distinct Clusters: The PCA plot shows that the four clusters are distinct, as they are spread out across the first two principal components, which are the dimensions capturing the most variance.
+- Cluster Overlap: There appears to be some overlap between the clusters, particularly between clusters 1 and 2. This suggests some similarity between these groups in the multidimensional space of the original variables.
+- PCA Effectiveness: The clear separation of clusters along PC1 and PC2 indicates that PCA is effective in reducing dimensionality while still preserving the structure necessary for cluster differentiation.
+
+```{r pca}
+# PCA for dimensionality reduction
+pca <- prcomp(clustering_data)
+# Plotting the first two principal components
+ggplot(as.data.frame(pca$x), aes(x = PC1, y = PC2, color = as.factor(dsalaries$cluster))) +
+  geom_point(alpha = 0.5) +
+  labs(color = "Cluster")
+```
+
+### 4.1.4. SILHOUETTE PLOT
+```{r silhouette}
+silhouette_scores <- silhouette(km$cluster, dist(clustering_data))
+# Calculate silhouette information
+silhouette_info <- silhouette(km$cluster, dist(clustering_data))
+# Plot silhouette information
+plot(silhouette_info, col = 1:k, border = NA)  # 'k' is the number of clusters
+
+
+# Summarize the data and calculate mean for numeric columns, grouped by cluster
+dsalaries_summary <- dsalaries %>%
+  group_by(cluster) %>%
+  summarize(across(where(is.numeric), ~ mean(., na.rm = TRUE)))
+# Display the summary as a table
+kable(dsalaries_summary, format = "html", caption = "**Mean Values by Cluster**")
+```
+
+
+##### Following conclusions can be drawn from the above table:
+
+**Work_Year:**
+        Cluster 1: The average work year is approximately 2022.58, suggesting most data points are from around mid-2022.
+        Cluster 2: Slightly later, with an average work year around late 2022 (2022.689).
+        Cluster 3: Similar to Cluster 1, with an average year around early to mid-2022 (2022.477).
+        Cluster 4: The average year falls around early 2021 (2021.417), indicating this cluster contains older data.
+
+**Salary:**
+        Clusters 1, 2, and 3 have average salaries of approximately 125,332, 218,124, and 161,147 respectively. These figures represent the average salary without considering currency differences.
+        Cluster 4 has a significantly higher average salary of around 357,416.
+
+**Salary_in_USD:**
+        This column normalizes salaries across clusters to US dollars, facilitating direct comparison.
+        Clusters 1, 2, and 3 have average salaries in USD of around 113,070, 216,708, and 155,244 respectively.
+        Cluster 4, despite having the highest average nominal salary, has a lower average when converted to USD (73,814), suggesting this cluster might contain data from countries with higher nominal salaries but lower value in USD.
+
+**Remote_Ratio:**
+        For Cluster 1, the ratio is around 1.08, suggesting very low remote work prevalence.
+        Cluster 2 has a slightly higher ratio of around 2.93, indicating a marginal increase in remote work.
+        Cluster 3 shows a significant jump, with a ratio of 99.54, suggesting almost entirely remote work.
+        Cluster 4 also indicates high remote work prevalence (81.34), although not as high as Cluster 3.
+
+
+## 4.2. CLUSTERING BASED ON SALARY IN USD, JOB TITLE AND EMPLOYEE RESIDENCE
+
+### 4.2.1. DATA PREPARATION:
+```{r data_preparation}
+# One-hot encoding for categorical variables
+dsalaries_encoded <- dummyVars("~ job_title + employee_residence", data = dsalaries)
+dsalaries_cluster <- predict(dsalaries_encoded, newdata = dsalaries)
+# Ensure the result is a data frame and add 'salary_in_usd'
+dsalaries_cluster <- data.frame(dsalaries_cluster)
+dsalaries_cluster$salary_in_usd <- dsalaries$salary_in_usd
+# Now, check if all columns are numeric
+all_numeric <- all(sapply(dsalaries_cluster, is.numeric))
+if(!all_numeric) {
+  stop("Not all columns in dsalaries_cluster are numeric.")
+}
+# Proceed with scaling if all columns are numeric
+dsalaries_cluster_scaled <- scale(dsalaries_cluster)
+```
+
+### 4.2.2. ELBOW METHOD FOR CHOOSING OPTIMAL K
+Based on this plot, one might choose k=4 for clustering as it appears to be the point after which the reductions in WSS become less significant, indicating that additional clusters do not contribute much to explaining the variance.
+```{r elbow_method_cluster2}
+set.seed(123)  # Set seed for reproducibility
+wss <- sapply(1:10, function(k) {
+  kmeans(dsalaries_cluster_scaled, centers = k, nstart = 10)$tot.withinss
+})
+plot(1:10, wss, type = "b", xlab = "Number of Clusters", ylab = "Within groups sum of squares")
+```
+
+### 4.2.3. K=MEANS CLUSTERING
+Overall, the clustering suggests that salaries in the data science field are influenced by job title and geographic location, with significant variance between different clusters. The larger clusters likely represent more common salary ranges and roles, while the smaller clusters may reflect specialized or regional characteristics of the data science job market.
+
+Cluster 4: This is the largest cluster with 3006 individuals, indicating it may represent the most common salary range and job characteristics within the dataset. The average salary is relatively high at approximately $153,005, with a median close to $145,000, suggesting a strong central concentration around this salary level. The wide salary range indicates significant diversity within this group. The most common job title is "Data Engineer," and the most common residence is the United States, which could imply that data engineering is a lucrative and common role in the US data science job market.
+
+Cluster 3: Comprising 733 individuals, this cluster has a lower average salary of around $76,055 and a median of $65,000, which might reflect early to mid-career positions. The salary range is also wide, potentially indicating a variety of job roles within this cluster. The prevalent job title is "Data Scientist," and the top residence is Great Britain, suggesting that data science roles in GB are diverse and possibly include a range from junior to senior positions.
+
+Cluster 1: This is a very small cluster with only 14 individuals, which could represent a niche or specialized segment within the data science market. The average salary is around $60,800, with a narrower salary range. The primary job title is "Cloud Data Engineer," and the top residence is Argentina, indicating a specific market or demand for cloud engineering expertise in that region.
+
+Cluster 2: The smallest cluster, with just 2 individuals, has an average and median salary of $22,500, which is substantially lower than the other clusters. This may indicate entry-level positions or roles in regions with lower salary scales. The job title "Compliance Data Analyst" and the residence in Nigeria suggest these might be specialized roles in a particular sector or locale.
+
+```{r clustering_2}
+# Perform k-means clustering
+set.seed(123)
+k <- 4  # Number of clusters determined from earlier analysis
+km <- kmeans(dsalaries_cluster_scaled, centers = k, nstart = 25)
+
+# Attaching the cluster assignment back to the original data
+dsalaries$cluster <- km$cluster
+
+# Summary of cluster counts
+cluster_counts <- table(dsalaries$cluster)
+
+# Creating a summary tibble for each cluster with various statistics
+cluster_summary <- dsalaries %>%
+  group_by(cluster) %>%
+  summarise(
+    Count = n(),
+    Average_Salary = mean(salary_in_usd, na.rm = TRUE),
+    Median_Salary = median(salary_in_usd, na.rm = TRUE),
+    Salary_Range = max(salary_in_usd, na.rm = TRUE) - min(salary_in_usd, na.rm = TRUE),
+    Top_Job_Title = names(sort(table(job_title), decreasing = TRUE)[1]),
+    Top_Residence = names(sort(table(employee_residence), decreasing = TRUE)[1])
+  ) %>%
+  arrange(desc(Count)) %>%
+  as_tibble()  # Convert to a tibble for a clean format
+
+# Print the summary using kable for a nice table format
+kable(cluster_summary, format = "markdown", caption = "Summary of Clusters")
+```
+
+### 4.2.4. PCA
+Here's an interpretation of the PCA plot:
+
+- Variance Explained: Both PC1 and PC2 explain a very small amount of the variance (1% each). This suggests that these two components do not capture the majority of the information in the dataset. The low variance explained by the first two principal components may indicate that the dataset is high-dimensional or that the variability is spread out over many variables.
+
+- Cluster Distribution: Despite the low variance explained, the clusters appear to be differentiated along the PC1 axis, though there is considerable overlap along the PC2 axis. This could mean that the feature or combination of features that most strongly define the clusters are captured by PC1.
+
+- Cluster Overlap: The significant overlap of clusters, especially along PC2, suggests that the clusters are not entirely distinct in the first two principal component dimensions. This might imply that the clusters are not well-separated in the higher-dimensional space or that more components are needed to achieve clear separation.
+
+```{r PCA2}
+# Perform PCA
+pca_result <- prcomp(dsalaries_cluster_scaled)
+
+# Get variance explained by each principal component
+explained_var <- pca_result$sdev^2 / sum(pca_result$sdev^2)
+
+# Create a data frame of the PCA results for plotting
+pca_df <- data.frame(PC1 = pca_result$x[, 1], PC2 = pca_result$x[, 2], cluster = as.factor(dsalaries$cluster))
+
+# Create the PCA plot with variance explained in the title
+ggplot(pca_df, aes(x = PC1, y = PC2, color = cluster)) +
+  geom_point(alpha = 0.5) +
+  scale_color_manual(values = rainbow(length(unique(pca_df$cluster)))) + # This ensures clusters have different colors
+  labs(title = paste("PCA of dsalaries (Var explained: PC1 =", round(explained_var[1], 2), 
+                     ", PC2 =", round(explained_var[2], 2), ")"),
+       x = "Principal Component 1",
+       y = "Principal Component 2",
+       color = "Cluster") +
+  theme_minimal()
+```
+
+### 4.2.5. SILHOUETTE ANALYSIS
+The silhouette plot reveals an unexpected insight into the clustering structure of the data science salaries dataset. 
+The elbow method suggested four clusters as optimal for our dataset.
+Contrarily, the silhouette analysis showed mixed results:
+One cluster exhibits high silhouette scores, indicating strong internal agreement.
+Another cluster presents significant negative values, suggesting poor fit within the cluster.
+This discrepancy implies that:
+1. The k-means assumption of spherical clusters may not hold for this data.
+2. The actual structure of the data might be more complex than k-means can capture.
+
+```{r silhouette2}
+
+silhouette_info <- silhouette(km$cluster, dist(dsalaries_cluster_scaled))
+
+autoplot(silhouette(km$cluster, dist(dsalaries_cluster_scaled)), frame = TRUE)
+
+```
+
+
+## 5.  ADVANCED ANALYSIS
+
+### 5.1. DECISION TREES
+
+Below there are decision trees regarding every region: Europe, North America and Other Regions. 
+They display decisions based on experience level and job title category.
+Salaries are presented as 10000 USD.
+
+```{r ssss}
+
+job_title_abbreviations <- list(
+  "Data Engineering & Architecture" = "DEA",
+  "Data Science & Analytics" = "DSA",
+  "Emerging Technologies & Specialized Roles" = "ETSR",
+  "Machine Learning & Advanced Research" = "MLAR"
+  # Add all necessary mappings
+)
+
+# Function to get abbreviation
+get_abbreviation <- function(title) {
+  if (title %in% names(job_title_abbreviations)) {
+    return(job_title_abbreviations[[title]])
+  } else {
+    return(NA)
+  }
+}
+
+# Apply the abbreviations to the dataset
+dsalaries$job_title_category <- sapply(dsalaries$job_title_category, function(x) {
+  if (x %in% names(job_title_abbreviations)) {
+    job_title_abbreviations[[x]]
+  } else {
+    NA
+  }
+})
+
+# Convert the result to a vector and then to a factor
+dsalaries$job_title_category <- as.factor(unlist(dsalaries$job_title_category))
+
+
+# Apply the abbreviations to the dataset
+dsalaries$job_title_category <- sapply(dsalaries$job_title_category, function(x) job_title_abbreviations[[x]])
+
+# Adjust salary to be in units of 10,000 USD
+dsalaries$salary_in_usd <- dsalaries$salary_in_usd / 10000
+
+# Split the data into three regions
+dsalaries_europe <- subset(dsalaries, region == "Europe")
+dsalaries_north_america <- subset(dsalaries, region == "North America")
+dsalaries_other <- subset(dsalaries, !(region %in% c("Europe", "North America")))
+
+# Recalculate quartiles for adjusted salary_in_usd
+quartiles <- quantile(dsalaries$salary_in_usd, probs = c(0.25, 0.5, 0.75, 1.0))
+
+# Function to map salary to a shade of blue
+map_salary_to_color <- function(salary) {
+  if (salary <= quartiles[1]) {
+    return("lightblue")  # First quartile
+  } else if (salary <= quartiles[2]) {
+    return("lightskyblue")  # Second quartile
+  } else if (salary <= quartiles[3]) {
+    return("deepskyblue")  # Third quartile
+  } else {
+    return("dodgerblue")    # Fourth quartile
+  }
+}
+
+# Apply the color mapping to each region
+dsalaries_europe$node_color <- sapply(dsalaries_europe$salary_in_usd, map_salary_to_color)
+dsalaries_north_america$node_color <- sapply(dsalaries_north_america$salary_in_usd, map_salary_to_color)
+dsalaries_other$node_color <- sapply(dsalaries_other$salary_in_usd, map_salary_to_color)
+
+# Fit decision trees for each region using the adjusted salary
+decision_tree_europe <- rpart(
+  salary_in_usd ~ experience_level + company_size + job_title_category,
+  data = dsalaries_europe,
+  method = "anova",
+  control = rpart.control(cp = 0.001, minsplit = 10, minbucket = 5, xval = 10)
+)
+
+decision_tree_north_america <- rpart(
+  salary_in_usd ~ experience_level + company_size + job_title_category,
+  data = dsalaries_north_america,
+  method = "anova",
+  control = rpart.control(cp = 0.001, minsplit = 10, minbucket = 5, xval = 10)
+)
+
+decision_tree_other <- rpart(
+  salary_in_usd ~ experience_level + company_size + job_title_category,
+  data = dsalaries_other,
+  method = "anova",
+  control = rpart.control(cp = 0.001, minsplit = 10, minbucket = 5, xval = 10)
+)
+
+# Function to plot decision trees with a custom legend
+plot_decision_tree <- function(decision_tree, node_color, title) {
+  rpart.plot(
+    decision_tree, 
+    type = 0,
+    extra = 0,
+    box.col = node_color,
+    cex = 0.6,
+    main = title
+  )
+}
+
+quartiles <- quantile(dsalaries$salary_in_usd, probs = c(0.25, 0.5, 0.75, 1.0))
+
+```
+
+### 5.2. COLORS REPRESENTING CORRESPONDING QUARTILES AND SALARY IN USD RANGES
+
+Below there is a plot displaying the meaning of colors - which quartile and which level of salary in USD they represent.
+
+```{r quartile_colors}
+
+# Calculate the quartiles
+quartiles <- quantile(dsalaries$salary_in_usd, probs = c(0.25, 0.5, 0.75, 1.0))
+
+# Create a data frame for the legend with the correct order of salary ranges
+legend_data <- data.frame(
+  Quartile = factor(c("1st Quartile (Lowest)", "2nd Quartile", "3rd Quartile", "4th Quartile (Highest)"), 
+                    levels = c("1st Quartile (Lowest)", "2nd Quartile", "3rd Quartile", "4th Quartile (Highest)")),
+  Salary_Range = factor(c(paste("Up to", dollar(quartiles[1]*10000)),
+                          paste(dollar(quartiles[1]*10000), "-", dollar(quartiles[2]*10000)),
+                          paste(dollar(quartiles[2]*10000), "-", dollar(quartiles[3]*10000)),
+                          paste("Above", dollar(quartiles[3]*10000))),
+                        levels = c(paste("Up to", dollar(quartiles[1]*10000)),
+                                   paste(dollar(quartiles[1]*10000), "-", dollar(quartiles[2]*10000)),
+                                   paste(dollar(quartiles[2]*10000), "-", dollar(quartiles[3]*10000)),
+                                   paste("Above", dollar(quartiles[3]*10000)))),
+  Color = c("lightblue", "lightskyblue", "deepskyblue", "dodgerblue")
+)
+
+# Create the plot
+ggplot(legend_data, aes(x = Salary_Range, y = Quartile)) +
+  geom_tile(aes(fill = Color), color = "black", width = 0.8, height = 0.5) +
+  scale_fill_identity() +
+  theme_minimal() +
+  theme(legend.position = "none",
+        axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
+        axis.title.x = element_text(face = "bold"),
+        axis.title.y = element_text(face = "bold"),
+        axis.text.y = element_text(angle = 0, hjust = 1)) +
+  labs(x = NULL, y = NULL)
+
+```
+
+### 5.3. EXPLANATION OF ABBREVIATIONS OF JOB TITLE CATEGORIES
+
+Below there is a table with explanation of abbreviations used in decision trees. 
+
+```{r abbreviation_legend}
+
+
+# Convert the abbreviations list to a data frame
+abbrev_df <- data.frame(
+  Abbreviation = unlist(job_title_abbreviations),
+  stringsAsFactors = FALSE
+)
+
+# Use kable from the knitr package to create a table in RMarkdown
+knitr::kable(abbrev_df, caption = "**Legend for Job Title Category Abbreviations**")
+
+
+```
+
+### 5.4. DECISION TREES FOR REGIONS: EUROPE, NORTH AMERICA AND OTHER REGIONS
+
+```{r trees}
+# Plot each tree with custom colors and legends
+## Plot for Europe
+plot_decision_tree(decision_tree_europe, dsalaries_europe$node_color, "Decision Tree for Europe - Salaries in 10000 USD")
+
+## Plot for North America
+plot_decision_tree(decision_tree_north_america, dsalaries_north_america$node_color, "Decision Tree for North America - Salaries in 10000 USD")
+
+## Plot for Other Regions
+plot_decision_tree(decision_tree_other, dsalaries_other$node_color, "Decision Tree for Other Regions - Salaries in 10000 USD")
+
+```
+
+## 6. CONCLUSION
+
+This report aimed to answer the research question: "What factors contribute to the top quartile of data science salaries?" Based on the analysis conducted, several key factors influencing salaries in the data science industry were identified.
+
+### 6.1. KEY FINDINGS
+
+1. Experience Level and Job Title Impact: Higher salaries are commonly associated with senior-level positions and specialized job titles such as Machine Learning & Advanced Research roles. The decision trees and clustering analysis highlighted that experience and job title categories significantly influence salary levels.
+
+2. Geographical Variations: The salary distribution varied significantly across regions. North America generally offered higher salaries compared to Europe and other regions. This trend was evident in both the boxplots and the average salary trends over the years.
+
+3. Company Size: Larger companies tended to offer higher and more varying salaries. This was visible in the boxplot analysis where larger companies had a wider interquartile range, indicating diverse compensation strategies.
+
+4. Emerging Technologies and Specializations: Job titles within the "Emerging Technologies & Specialized Roles" category often correlated with higher salaries. This suggests that niche skills and innovative roles are highly valued in the industry.
+
+5. Remote Work Flexibility: The analysis showed varying impacts of remote work on salaries. While some high-paying roles offered flexibility, there was no consistent trend indicating a direct correlation between remote work and higher salaries.
+
+### 6.2. IMPLICATIONS
+
+1. Career Path and Skill Development: For professionals in the data science field, focusing on gaining experience, enhancing specialized skills, and aiming for senior roles can be beneficial for salary progression.
+2. Geographic Considerations: Professionals might consider opportunities in regions like North America for potentially higher salaries, although this should be weighed against cost of living and personal circumstances.
+3. Company Choices: Working in larger companies might offer opportunities for higher salaries, but it's essential to consider other factors like company culture, growth opportunities, and job security.
+4. Skill Specialization: Staying abreast of emerging technologies and developing niche skills can lead to lucrative opportunities, as seen in the higher salaries for specialized roles.
+
+### 6.3. LIMITATIONS AND RECOMMENDATIONS FOR FURTHER RESEARCH
+
+1. Data Scope: The dataset primarily focused on certain regions and job titles. Expanding the data to include more diverse regions and emerging job roles would provide a more comprehensive understanding.
+2. Dynamic Industry Trends: The data science field is rapidly evolving. Continuous analysis with up-to-date data is necessary to understand current salary trends.
+3. Factor Interactions: Further research could explore the interactions between different factors, like how company size and experience level jointly influence salaries.
+
+In conclusion, while the data science field offers diverse and lucrative career opportunities, factors such as experience level, job title, geographic location, and company size play crucial roles in determining salary levels. Continuous learning and adaptation to industry trends are key for professionals aiming to reach the top quartile of data science salaries.
+
+`
